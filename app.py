@@ -58,7 +58,7 @@ if uploaded_files:
                     continue
 
                 # AI 분석 실행
-                model = genai.GenerativeModel('gemini-1.5-pro')
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 res = model.generate_content([SYSTEM_PROMPT, video_part])
                 
                 # JSON 파싱 및 저장
@@ -96,3 +96,4 @@ if st.session_state.all_results:
                 st.write(f"**제목:** {result['yt']['title']}")
                 st.success(f"**대본:**\n{result['yt']['script']}")
                 st.code(f"태그: {result['yt']['tags']}\n댓글: {result['yt']['comment']}", language="text")
+
