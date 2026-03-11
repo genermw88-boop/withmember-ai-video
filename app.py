@@ -4,6 +4,7 @@ import time
 import json
 import os
 import requests
+import gc # 메모리 자동 청소기
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 import moviepy.video.fx.all as vfx
 
@@ -15,11 +16,6 @@ try:
     genai.configure(api_key=GEMINI_API_KEY)
 except Exception as e:
     st.sidebar.error("❌ Secrets에 API 키를 등록해주세요!")
-
-st.sidebar.header("📝 마케팅 브리프")
-store_name = st.sidebar.text_input("상호명 (예: 동경생고기)", "")
-main_menu = st.sidebar.text_input("주력 메뉴 (예: 1++ 한우 특수부위)", "")
-key_point = st.sidebar.text_area("강조할 포인트 (예: 단체 회식 환영)", "")
 
 def get_system_prompt(store, menu, point):
     store_text = store if store else "해당 매장"
@@ -39,13 +35,9 @@ def generate_audio(text, output_path):
     if not ELEVENLABS_API_KEY:
         st.error("🔑 일레븐랩스 API 키가 없습니다.")
         return False
-
-    # =====================================================================
-    # 🔴🔴🔴 대표님! 바로 이 줄입니다! 아래 큰따옴표("") 안에 아이디를 넣으세요! 🔴🔴🔴
-    
-    VOICE_ID = "4JJwo477JUAx3HV0T7n7" 
-    
-    # =====================================================================
+        
+    # 🔴🔴🔴 여기에 대표님의 한국인 성우 ID를 넣으세요! 🔴🔴🔴
+    VOICE_ID = "DMkRitQrfpiddSQT5adl" 
     
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
     headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
@@ -56,9 +48,7 @@ def generate_audio(text, output_path):
         with open(output_path, 'wb') as f:
             f.write(response.content)
         return True
-    else:
-        st.error(f"❌ 일레븐랩스 에러: {response.text}")
-        return False
+    return False
 
 def create_final_video(video_path, audio_path, script_text, output_path):
     try:
@@ -89,38 +79,53 @@ def create_final_video(video_path, audio_path, script_text, output_path):
         final_vid = CompositeVideoClip([vid, txt_clip])
         final_vid = final_vid.set_audio(aud)
         
-        final_vid.write_videofile(
-            output_path, 
-            fps=24, 
-            codec="libx264", 
-            audio_codec="aac", 
-            preset="ultrafast", 
-            threads=1, 
-            logger=None
-        )
+        final_vid.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=1, logger=None)
         
         vid.close()
         aud.close()
         final_vid.close()
+        
+        # 🔥 메모리 청소 (10개 연속 작업을 위한 핵심)
+        gc.collect() 
         return True
     except Exception as e:
         st.error(f"❌ 합성 에러: {str(e)}")
         return False
 
-st.title("🚀 위드멤버 맞춤형 영상 제작 스튜디오")
+st.title("🚀 위드멤버 개별 맞춤 영상 스튜디오")
 
-uploaded_files = st.file_uploader("영상을 업로드하세요 (1개 권장)", type=['mp4', 'mov'], accept_multiple_files=True)
+# 1. 영상 다중 업로드
+uploaded_files = st.file_uploader("영상을 여러 개 업로드하세요 (최대 10개)", type=['mp4', 'mov'], accept_multiple_files=True)
 
 if uploaded_files:
-    if st.button("🎬 맞춤형 영상 제작 시작"):
-        final_prompt = get_system_prompt(store_name, main_menu, key_point)
+    st.divider()
+    st.subheader("📝 영상별 세부 기획 입력")
+    st.caption("업로드하신 각 영상에 맞게 상호명과 특징을 따로따로 적어주세요.")
+    
+    # 2. 영상마다 입력창을 따로 생성
+    user_inputs = {}
+    for file in uploaded_files:
+        with st.expander(f"📌 '{file.name}' 지시사항", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                s_name = st.text_input("상호명", key=f"name_{file.name}")
+                s_menu = st.text_input("주력 메뉴", key=f"menu_{file.name}")
+            with col2:
+                s_point = st.text_area("강조할 포인트", key=f"point_{file.name}")
+            
+            user_inputs[file.name] = {"store": s_name, "menu": s_menu, "point": s_point}
+            
+    st.divider()
+
+    # 3. 제작 버튼
+    if st.button(f"🎬 총 {len(uploaded_files)}개 영상 일괄 제작 시작"):
         progress_bar = st.progress(0)
         status_area = st.empty()
         
         for idx, file in enumerate(uploaded_files):
             file_name = file.name
             base_name = file_name.split('.')[0]
-            status_area.info(f"⏳ '{file_name}' 분석 중...")
+            status_area.info(f"⏳ ({idx+1}/{len(uploaded_files)}) '{file_name}' 작업 중...")
             
             raw_video_path = f"raw_{file_name}"
             with open(raw_video_path, "wb") as f:
@@ -132,19 +137,23 @@ if uploaded_files:
                     time.sleep(3)
                     video_part = genai.get_file(video_part.name)
                 
+                # 영상별로 사용자가 입력한 내용을 가져와서 프롬프트 생성
+                my_input = user_inputs[file_name]
+                final_prompt = get_system_prompt(my_input["store"], my_input["menu"], my_input["point"])
+                
                 model = genai.GenerativeModel(model_name="models/gemini-2.5-flash")
                 response = model.generate_content([final_prompt, video_part])
                 res_data = json.loads(response.text.replace('```json', '').replace('```', '').strip())
                 
                 for platform, key in [("인스타", "ig"), ("유튜브", "yt")]:
-                    with st.expander(f"✨ [{platform}] 기획안 및 영상: {file_name}", expanded=True):
+                    with st.expander(f"✨ [{platform}] 완성본: {file_name}", expanded=True):
                         st.write(f"**📝 {res_data[key]['title']}**")
                         st.info(res_data[key]['script'])
                         
                         audio_path = f"audio_{key}_{base_name}.mp3"
                         final_video_path = f"final_{key}_{base_name}.mp4"
                         
-                        with st.spinner(f"[{platform}] 목소리 및 자막 합성 중..."):
+                        with st.spinner(f"[{platform}] 자막 및 목소리 렌더링 중..."):
                             if generate_audio(res_data[key]['script'], audio_path):
                                 if create_final_video(raw_video_path, audio_path, res_data[key]['script'], final_video_path):
                                     if os.path.exists(final_video_path):
@@ -157,4 +166,4 @@ if uploaded_files:
             
             progress_bar.progress((idx + 1) / len(uploaded_files))
             
-        status_area.success("✅ 작업이 완료되었습니다!")
+        status_area.success("✅ 모든 맞춤형 영상 제작이 완료되었습니다!")
