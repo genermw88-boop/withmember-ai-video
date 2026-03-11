@@ -1,72 +1,52 @@
 import streamlit as st
 import google.generativeai as genai
-from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, AudioFileClip
-from openai import OpenAI
+import time
 import json
 import os
 from prompts import SYSTEM_PROMPT
 
-# API 키 설정
-os.environ["OPENAI_API_KEY"] = st.sidebar.text_input("OpenAI API Key", type="password")
-genai.configure(api_key=st.sidebar.text_input("Gemini API Key", type="password"))
-
-client = OpenAI()
-
-def make_video(base_video_path, script, subtitles, output_name):
-    """실제 영상을 편집하고 자막/나레이션을 입히는 함수"""
-    video = VideoFileClip(base_video_path)
-    
-    # 1. TTS 생성 (OpenAI 사용)
-    response = client.audio.speech.create(
-        model="tts-1",
-        voice="alloy", # 인스타/유튜브별로 다르게 설정 가능
-        input=script
-    )
-    response.stream_to_file("temp_audio.mp3")
-    audio = AudioFileClip("temp_audio.mp3")
-    
-    # 2. 자막 합성 (MoviePy) - 간단한 버전
-    # 실제 구현 시 타이밍 조절 로직이 추가되어야 함
-    txt_clip = TextClip(subtitles[0], fontsize=50, color='white', font='Arial-Bold')
-    txt_clip = txt_clip.set_pos('center').set_duration(video.duration)
-    
-    final_video = video.set_audio(audio)
-    result = CompositeVideoClip([final_video, txt_clip])
-    result.write_videofile(output_name, fps=24)
-    return output_name
+# 1. API 키 자동 로드 (Secrets 활용)
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # OpenAI 키 등도 필요시 여기에 세팅
+    st.sidebar.success("✅ 위드멤버 시스템 권한 인증 완료")
+except:
+    st.sidebar.error("❌ API 키를 Secrets에 등록해주세요!")
 
 st.title("🚀 위드멤버 AI 영상 자동화 스튜디오")
-st.write("촬영하신 영상을 업로드하면 플랫폼별 맞춤 영상을 생성합니다.")
 
-uploaded_file = st.file_uploader("영상을 업로드하세요", type=['mp4', 'mov'])
+# 2. 다중 업로드 가능하게 변경 (accept_multiple_files=True)
+uploaded_files = st.file_uploader("촬영하신 영상을 모두 선택하세요", type=['mp4', 'mov'], accept_multiple_files=True)
 
-if uploaded_file:
-    with open("temp_input.mp4", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.video("temp_input.mp4")
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        st.write(f"🎞️ 파일 분석 중: {uploaded_file.name}")
+        
+        with open("temp_input.mp4", "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-    if st.button("✨ 인스타/유튜브 패키지 동시 생성 시작"):
-        with st.spinner("AI가 영상을 분석하고 기획 중입니다..."):
-            # 1. Gemini 영상 분석
-            model = genai.GenerativeModel('gemini-1.5-pro')
-            video_part = genai.upload_file(path="temp_input.mp4")
-            res = model.generate_content([SYSTEM_PROMPT, video_part])
-            data = json.loads(res.text)
-
-            # 2. 결과물 출력 (메타데이터)
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("📸 인스타 공감형")
-                st.write(f"**제목:** {data['ig']['title']}")
-                st.write(f"**태그:** {data['ig']['tags']}")
-                st.info(data['ig']['script'])
-                # make_video 호출 및 다운로드 버튼 추가 가능
+        if st.button(f"✨ {uploaded_file.name} 패키지 생성 시작"):
+            with st.spinner("AI가 영상을 요리 중입니다. 잠시만 기다려주세요..."):
+                # [핵심] Gemini에 영상 업로드
+                video_part = genai.upload_file(path="temp_input.mp4")
                 
-            with col2:
-                st.subheader("📺 유튜브 정보성")
-                st.write(f"**제목:** {data['yt']['title']}")
-                st.write(f"**태그:** {data['yt']['tags']}")
-                st.success(data['yt']['script'])
+                # [핵심] 영상이 준비될 때까지 대기 (NotFound 에러 방지)
+                while video_part.state.name == "PROCESSING":
+                    time.sleep(2)
+                    video_part = genai.get_file(video_part.name)
+                
+                if video_part.state.name == "FAILED":
+                    st.error("영상 분석에 실패했습니다.")
+                    continue
 
-st.divider()
-st.caption("© 2026 WithMember AI Studio. All rights reserved.")
+                # 분석 시작
+                model = genai.GenerativeModel('gemini-1.5-pro')
+                res = model.generate_content([SYSTEM_PROMPT, video_part])
+                
+                # 결과 출력 (JSON 파싱)
+                try:
+                    data = json.loads(res.text.replace('```json', '').replace('```', ''))
+                    st.success(f"✅ {uploaded_file.name} 분석 완료!")
+                    # (여기에 결과 화면 구성 코드 넣기)
+                except:
+                    st.write(res.text) # JSON 형식이 아닐 경우 대비
