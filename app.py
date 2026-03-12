@@ -4,7 +4,16 @@ import time
 import json
 import os
 import requests
-import gc # 메모리 청소
+import gc 
+
+# ==========================================
+# 🔥 PIL.Image.ANTIALIAS 에러 해결을 위한 백신 코드
+import PIL
+from PIL import Image
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
+# ==========================================
+
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 import moviepy.video.fx.all as vfx
 
@@ -36,7 +45,7 @@ def generate_audio(text, output_path):
         st.error("🔑 일레븐랩스 API 키가 없습니다.")
         return False
         
-    # 🔴 일레븐랩스 한국인 성우 ID (여기에 대표님 ID를 꼭 넣어주세요!)
+    # 🔴🔴🔴 여기에 아까 찾으신 대표님의 성우 ID를 다시 넣어주세요! 🔴🔴🔴
     VOICE_ID = "QPFsEL6IBxlT15xfiD6C" 
     
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
@@ -48,7 +57,9 @@ def generate_audio(text, output_path):
         with open(output_path, 'wb') as f:
             f.write(response.content)
         return True
-    return False
+    else:
+        st.error(f"❌ 일레븐랩스 에러: {response.text}")
+        return False
 
 def create_final_video(video_path, audio_path, script_text, output_path):
     try:
@@ -133,7 +144,6 @@ if uploaded_files:
                 my_input = user_inputs[file_name]
                 final_prompt = get_system_prompt(my_input["store"], my_input["menu"], my_input["point"])
                 
-                # 🔥 핵심: 무조건 gemini-2.5-flash 만 사용하도록 박아두었습니다!
                 model = genai.GenerativeModel(model_name="models/gemini-2.5-flash")
                 response = model.generate_content([final_prompt, video_part])
                 res_data = json.loads(response.text.replace('```json', '').replace('```', '').strip())
