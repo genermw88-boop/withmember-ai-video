@@ -4,11 +4,11 @@ import time
 import json
 import os
 import requests
-import gc # 메모리 자동 청소기
+import gc # 메모리 청소
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 import moviepy.video.fx.all as vfx
 
-st.set_page_config(page_title="위드멤버 AI 영상 센터", layout="wide")
+st.set_page_config(page_title="위드멤버 개별 맞춤 영상 스튜디오", layout="wide")
 
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -36,8 +36,8 @@ def generate_audio(text, output_path):
         st.error("🔑 일레븐랩스 API 키가 없습니다.")
         return False
         
-    # 🔴🔴🔴 여기에 대표님의 한국인 성우 ID를 넣으세요! 🔴🔴🔴
-    VOICE_ID = "DMkRitQrfpiddSQT5adl" 
+    # 🔴 일레븐랩스 한국인 성우 ID (여기에 대표님 ID를 꼭 넣어주세요!)
+    VOICE_ID = "QPFsEL6IBxlT15xfiD6C" 
     
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
     headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
@@ -84,8 +84,6 @@ def create_final_video(video_path, audio_path, script_text, output_path):
         vid.close()
         aud.close()
         final_vid.close()
-        
-        # 🔥 메모리 청소 (10개 연속 작업을 위한 핵심)
         gc.collect() 
         return True
     except Exception as e:
@@ -94,15 +92,12 @@ def create_final_video(video_path, audio_path, script_text, output_path):
 
 st.title("🚀 위드멤버 개별 맞춤 영상 스튜디오")
 
-# 1. 영상 다중 업로드
 uploaded_files = st.file_uploader("영상을 여러 개 업로드하세요 (최대 10개)", type=['mp4', 'mov'], accept_multiple_files=True)
 
 if uploaded_files:
     st.divider()
     st.subheader("📝 영상별 세부 기획 입력")
-    st.caption("업로드하신 각 영상에 맞게 상호명과 특징을 따로따로 적어주세요.")
     
-    # 2. 영상마다 입력창을 따로 생성
     user_inputs = {}
     for file in uploaded_files:
         with st.expander(f"📌 '{file.name}' 지시사항", expanded=False):
@@ -112,12 +107,10 @@ if uploaded_files:
                 s_menu = st.text_input("주력 메뉴", key=f"menu_{file.name}")
             with col2:
                 s_point = st.text_area("강조할 포인트", key=f"point_{file.name}")
-            
             user_inputs[file.name] = {"store": s_name, "menu": s_menu, "point": s_point}
             
     st.divider()
 
-    # 3. 제작 버튼
     if st.button(f"🎬 총 {len(uploaded_files)}개 영상 일괄 제작 시작"):
         progress_bar = st.progress(0)
         status_area = st.empty()
@@ -137,10 +130,10 @@ if uploaded_files:
                     time.sleep(3)
                     video_part = genai.get_file(video_part.name)
                 
-                # 영상별로 사용자가 입력한 내용을 가져와서 프롬프트 생성
                 my_input = user_inputs[file_name]
                 final_prompt = get_system_prompt(my_input["store"], my_input["menu"], my_input["point"])
                 
+                # 🔥 핵심: 무조건 gemini-2.5-flash 만 사용하도록 박아두었습니다!
                 model = genai.GenerativeModel(model_name="models/gemini-2.5-flash")
                 response = model.generate_content([final_prompt, video_part])
                 res_data = json.loads(response.text.replace('```json', '').replace('```', '').strip())
