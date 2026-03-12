@@ -7,11 +7,11 @@ import requests
 import gc 
 
 # ==========================================
-# 🔥 PIL.Image.ANTIALIAS 에러 해결을 위한 백신 코드
+# 🔥 자막 에러(ANTIALIAS) 영구 해결 백신
 import PIL
 from PIL import Image
 if not hasattr(Image, 'ANTIALIAS'):
-    Image.ANTIALIAS = Image.LANCZOS
+    Image.ANTIALIAS = getattr(Image, 'Resampling', Image).LANCZOS
 # ==========================================
 
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
@@ -25,6 +25,14 @@ try:
     genai.configure(api_key=GEMINI_API_KEY)
 except Exception as e:
     st.sidebar.error("❌ Secrets에 API 키를 등록해주세요!")
+
+# ==========================================
+# 💡 코드를 고칠 필요 없이, 화면에서 성우 ID를 입력받습니다!
+st.sidebar.header("⚙️ 스튜디오 설정")
+user_voice_id = st.sidebar.text_input("🎙️ 성우 Voice ID를 붙여넣으세요", "")
+st.sidebar.caption("일레븐랩스에서 복사한 영문+숫자 아이디를 입력하세요.")
+st.sidebar.divider()
+# ==========================================
 
 def get_system_prompt(store, menu, point):
     store_text = store if store else "해당 매장"
@@ -40,15 +48,16 @@ def get_system_prompt(store, menu, point):
 }}
 """
 
-def generate_audio(text, output_path):
+def generate_audio(text, output_path, voice_id):
     if not ELEVENLABS_API_KEY:
         st.error("🔑 일레븐랩스 API 키가 없습니다.")
         return False
         
-    # 🔴🔴🔴 여기에 아까 찾으신 대표님의 성우 ID를 다시 넣어주세요! 🔴🔴🔴
-    VOICE_ID = "QPFsEL6IBxlT15xfiD6C" 
-    
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
+    if not voice_id:
+        st.error("👈 왼쪽 설정창에 일레븐랩스 성우 ID를 입력해주세요!")
+        return False
+        
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
     data = {"text": text, "model_id": "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.8}}
     
@@ -157,7 +166,8 @@ if uploaded_files:
                         final_video_path = f"final_{key}_{base_name}.mp4"
                         
                         with st.spinner(f"[{platform}] 자막 및 목소리 렌더링 중..."):
-                            if generate_audio(res_data[key]['script'], audio_path):
+                            # 🔥 이제 사용자가 화면에 입력한 아이디를 가져다 씁니다!
+                            if generate_audio(res_data[key]['script'], audio_path, user_voice_id):
                                 if create_final_video(raw_video_path, audio_path, res_data[key]['script'], final_video_path):
                                     if os.path.exists(final_video_path):
                                         st.video(final_video_path)
